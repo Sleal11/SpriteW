@@ -35,8 +35,14 @@ Sprite/
 │   └── game.js             → toda la lógica: teclado, movimiento, animación, dibujo
 └── assets/
     ├── robot-sprite.svg    → sprite sheet del robot (4 × 4 frames de 48 × 48 px)
-    └── fondo.svg           → imagen del escenario (640 × 400 px)
+    ├── fondo.svg           → imagen del escenario (640 × 400 px)
+    └── obstaculo.svg       → chip que el robot no puede atravesar
 ```
+
+> **Versión con obstáculos:** después de las 11 fases se agregaron 5 chips con colisiones.
+> Lo que cambió está en [`CAMBIOS.md`](CAMBIOS.md) y la explicación sencilla de todo
+> `game.js` en [`EXPLICACION.md`](EXPLICACION.md). El código de abajo muestra la versión
+> de las fases; la Fase 8 ya está actualizada a la forma actual.
 
 `index.html` enlaza `style.css` con `<link>` y `game.js` con `<script>`.
 `game.js` busca el canvas con `getElementById('escenario')` y dibuja dentro de él.
@@ -291,12 +297,13 @@ function actualizar() {
 let imagenesCargadas = 0;
 function imagenLista() {
   imagenesCargadas++;
-  if (imagenesCargadas === 2) {
+  if (imagenesCargadas === 3) {
     setInterval(actualizar, INTERVALO);
   }
 }
 fondo.onload = imagenLista;
 sprite.onload = imagenLista;
+imagenObstaculo.onload = imagenLista;
 ```
 
 **Explicación:**
@@ -304,7 +311,7 @@ sprite.onload = imagenLista;
   se dibuja el fondo y se dibuja el robot.
 - Se necesita actualizar muchas veces por segundo porque el canvas es una imagen
   estática: si no lo redibujamos, nada cambia en pantalla.
-- `onload` se dispara cuando una imagen termina de cargar. Contamos las dos imágenes
+- `onload` se dispara cuando una imagen termina de cargar. Contamos las tres imágenes
   y solo entonces arrancamos el intervalo, para no dibujar imágenes vacías.
 
 **Posibles errores:**
@@ -329,19 +336,23 @@ x mínimo = 0                   x máximo = 640 − 72 = 568
 y mínimo = 0                   y máximo = 400 − 72 = 328
 ```
 
-**Archivo:** `js/game.js` (final de `moverPersonaje()`)
+**Archivo:** `js/game.js` (parte 6, usada por `moverPersonaje()`)
 
 ```js
-const maxX = canvas.width - TAMANO_PERSONAJE;
-const maxY = canvas.height - TAMANO_PERSONAJE;
+function fueraDelCanvas(nuevoX, nuevoY) {
+  return nuevoX < 0 ||
+         nuevoY < 0 ||
+         nuevoX > canvas.width - TAMANO_PERSONAJE ||
+         nuevoY > canvas.height - TAMANO_PERSONAJE;
+}
 
-if (x < 0) x = 0;
-if (y < 0) y = 0;
-if (x > maxX) x = maxX;
-if (y > maxY) y = maxY;
+function puedeIr(nuevoX, nuevoY) {
+  return !fueraDelCanvas(nuevoX, nuevoY) && !chocaConObstaculo(nuevoX, nuevoY);
+}
 ```
 
-**Explicación:** primero se mueve y luego se corrige: si se pasó, se le devuelve al borde.
+**Explicación:** antes de mover, se pregunta si la nueva posición queda dentro del canvas
+(y sin chocar con un chip). Si no, el robot no se mueve en esa dirección.
 
 **Posibles errores:** el robot se sale a medias por la derecha o por abajo → se olvidó
 restar `TAMANO_PERSONAJE`.
@@ -385,8 +396,8 @@ Probado abriendo `index.html` directamente (`file://`) en Chromium:
 | Movimiento diagonal con dos teclas | ✅ |
 | Sin errores en la consola | ✅ |
 
-**Detalle conocido (aceptable):** si se mantiene una tecla contra un borde, el robot
-“camina en el sitio”. Se deja así por simplicidad.
+Contra un borde o un chip, el robot se detiene y muestra la pose de reposo.
+Las pruebas de los obstáculos están en [`CAMBIOS.md`](CAMBIOS.md).
 
 ---
 
@@ -411,8 +422,8 @@ Probado abriendo `index.html` directamente (`file://`) en Chromium:
 - **¿Qué hace `setInterval()`?** Ejecuta una función repetidamente cada X milisegundos.
 - **¿Por qué varias veces por segundo?** Porque el canvas es una imagen fija; para ver
   movimiento hay que redibujarlo constantemente.
-- **¿Cómo se evita que salga del Canvas?** Después de mover, si `x` o `y` se pasaron de
-  0 o del máximo, los devuelvo al borde.
+- **¿Cómo se evita que salga del Canvas?** Antes de mover, `puedeIr` comprueba que la
+  nueva posición quede entre 0 y el máximo; si no, el robot no se mueve.
 
 ### `setInterval()` vs `requestAnimationFrame()`
 
@@ -474,8 +485,8 @@ pantalla, o que deba ahorrar batería.
 16. **¿Por qué dibujas primero el fondo?**
     “Porque se pinta por capas; si dibujara el fondo después, taparía al robot.”
 17. **¿Cómo evitas que el robot salga del canvas?**
-    “Después de moverlo compruebo si `x` o `y` se pasaron de 0 o del máximo y los dejo en
-    el borde.”
+    “Antes de moverlo pregunto si la nueva posición queda dentro del canvas. Si no, no lo
+    muevo.”
 18. **¿Por qué el máximo es `canvas.width - 72`?**
     “Porque `x` es la esquina izquierda del robot y el robot mide 72 px.”
 19. **¿Por qué esperas el `onload` de las imágenes?**
@@ -493,7 +504,7 @@ JavaScript detecta la tecla (keydown → teclas.derecha = true)
         ↓
 setInterval llama a actualizar() cada 40 ms
         ↓
-moverPersonaje(): x += 4, direccion = 'derecha', seMueve = true, aplica límites
+moverPersonaje(): x += 4, direccion = 'derecha', seMueve = true (si puedeIr)
         ↓
 animarSprite(): como se mueve, cada 4 actualizaciones columna = columna + 1
         ↓
@@ -511,8 +522,8 @@ Usuario suelta la tecla (keyup → false) → seMueve = false → frame de repos
 1. **Tecla:** el usuario presiona →. El evento `keydown` pone `teclas.derecha = true`.
 2. **Intervalo:** cada 40 ms `setInterval` ejecuta `actualizar()`.
 3. **Movimiento:** `moverPersonaje()` ve `teclas.derecha` en `true`: suma 4 a `x`,
-   pone la dirección en `'derecha'` y marca `seMueve = true`. Si `x` pasó de 568,
-   lo deja en 568.
+   pone la dirección en `'derecha'` y marca `seMueve = true`, pero solo si `puedeIr` dice que la nueva
+   posición no se sale del canvas ni choca con un chip.
 4. **Animación:** `animarSprite()` suma 1 al contador; al llegar a 4, avanza la columna.
 5. **Limpiar:** `clearRect` borra todo el canvas.
 6. **Fondo:** `drawImage(fondo, ...)` pinta el escenario completo.
