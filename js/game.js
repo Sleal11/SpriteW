@@ -9,6 +9,10 @@ const ctx = canvas.getContext('2d');
 // =============================================
 const TAMANO_FRAME = 48;      // tamaño de cada frame dentro del sprite sheet (px)
 const TAMANO_PERSONAJE = 72;  // tamaño con el que dibujamos al robot en el canvas (px)
+const CAJA_ANCHO = 48;        // ancho de la caja de choque del robot (zona de los pies)
+const CAJA_ALTO = 40;         // alto de la caja de choque del robot
+const OBSTACULO_ANCHO = 100;  // tamaño de cada obstáculo (px)
+const OBSTACULO_ALTO = 70;
 const VELOCIDAD = 4;          // píxeles que avanza en cada actualización
 const INTERVALO = 40;         // milisegundos entre actualizaciones (25 por segundo)
 const ACTUALIZACIONES_POR_FRAME = 4; // cada cuántas actualizaciones cambia el frame
@@ -22,6 +26,13 @@ const FILAS = {
   derecha: 2,
   arriba: 3,
 };
+
+// Posición (esquina superior izquierda) de cada obstáculo del escenario
+const obstaculos = [
+  { x: 80,  y: 32 },  { x: 480, y: 32 },   // fila de arriba
+  { x: 160, y: 160 },                      // fila del medio
+  { x: 80,  y: 288 }, { x: 460, y: 288 },  // fila de abajo
+];
 
 // =============================================
 // 3. ESTADO DEL PERSONAJE
@@ -48,6 +59,9 @@ fondo.src = 'assets/fondo.svg';
 
 const sprite = new Image();
 sprite.src = 'assets/robot-sprite.svg';
+
+const imagenObstaculo = new Image();
+imagenObstaculo.src = 'assets/obstaculo.svg';
 
 // =============================================
 // 5. TECLADO
@@ -79,28 +93,68 @@ document.addEventListener('keyup', (evento) => {
 });
 
 // =============================================
-// 6. MOVIMIENTO Y LÍMITES
+// 6. LÍMITES Y COLISIONES
+// =============================================
+// ¿El robot en (nuevoX, nuevoY) quedaría fuera del canvas?
+function fueraDelCanvas(nuevoX, nuevoY) {
+  return nuevoX < 0 ||
+         nuevoY < 0 ||
+         nuevoX > canvas.width - TAMANO_PERSONAJE ||
+         nuevoY > canvas.height - TAMANO_PERSONAJE;
+}
+
+// ¿Los pies del robot en (nuevoX, nuevoY) tocarían algún obstáculo?
+function chocaConObstaculo(nuevoX, nuevoY) {
+  // Caja de choque: más chica que el dibujo, centrada y abajo (en los pies)
+  const pies = {
+    x: nuevoX + (TAMANO_PERSONAJE - CAJA_ANCHO) / 2,
+    y: nuevoY + (TAMANO_PERSONAJE - CAJA_ALTO),
+  };
+
+  // Dos rectángulos se tocan si se cruzan en horizontal Y en vertical
+  return obstaculos.some((obstaculo) =>
+    pies.x < obstaculo.x + OBSTACULO_ANCHO &&
+    pies.x + CAJA_ANCHO > obstaculo.x &&
+    pies.y < obstaculo.y + OBSTACULO_ALTO &&
+    pies.y + CAJA_ALTO > obstaculo.y
+  );
+}
+
+// El robot solo puede ir a un lugar dentro del canvas y sin obstáculos
+function puedeIr(nuevoX, nuevoY) {
+  return !fueraDelCanvas(nuevoX, nuevoY) && !chocaConObstaculo(nuevoX, nuevoY);
+}
+
+// =============================================
+// 7. MOVIMIENTO
 // =============================================
 function moverPersonaje() {
   seMueve = false;
 
-  if (teclas.arriba)    { y -= VELOCIDAD; direccion = 'arriba';    seMueve = true; }
-  if (teclas.abajo)     { y += VELOCIDAD; direccion = 'abajo';     seMueve = true; }
-  if (teclas.izquierda) { x -= VELOCIDAD; direccion = 'izquierda'; seMueve = true; }
-  if (teclas.derecha)   { x += VELOCIDAD; direccion = 'derecha';   seMueve = true; }
+  // 1) Según las teclas, cuánto quiere moverse en cada eje
+  let pasoX = 0;
+  let pasoY = 0;
 
-  // Límites: el personaje no puede salir del canvas
-  const maxX = canvas.width - TAMANO_PERSONAJE;
-  const maxY = canvas.height - TAMANO_PERSONAJE;
+  if (teclas.arriba)    { pasoY -= VELOCIDAD; direccion = 'arriba'; }
+  if (teclas.abajo)     { pasoY += VELOCIDAD; direccion = 'abajo'; }
+  if (teclas.izquierda) { pasoX -= VELOCIDAD; direccion = 'izquierda'; }
+  if (teclas.derecha)   { pasoX += VELOCIDAD; direccion = 'derecha'; }
 
-  if (x < 0) x = 0;
-  if (y < 0) y = 0;
-  if (x > maxX) x = maxX;
-  if (y > maxY) y = maxY;
+  // 2) Probar cada eje por separado: si uno está bloqueado, el otro sigue
+  //    (así el robot se desliza por el borde de un obstáculo)
+  if (pasoX !== 0 && puedeIr(x + pasoX, y)) {
+    x += pasoX;
+    seMueve = true;
+  }
+
+  if (pasoY !== 0 && puedeIr(x, y + pasoY)) {
+    y += pasoY;
+    seMueve = true;
+  }
 }
 
 // =============================================
-// 7. ANIMACIÓN DEL SPRITE
+// 8. ANIMACIÓN DEL SPRITE
 // =============================================
 function animarSprite() {
   if (!seMueve) {
@@ -117,7 +171,7 @@ function animarSprite() {
 }
 
 // =============================================
-// 8. DIBUJO
+// 9. DIBUJO
 // =============================================
 function dibujar() {
   // 1) Limpiar el canvas
@@ -126,7 +180,12 @@ function dibujar() {
   // 2) Dibujar el fondo completo
   ctx.drawImage(fondo, 0, 0, canvas.width, canvas.height);
 
-  // 3) Recortar el frame actual del sprite sheet y dibujarlo
+  // 3) Dibujar los obstáculos
+  obstaculos.forEach((obstaculo) => {
+    ctx.drawImage(imagenObstaculo, obstaculo.x, obstaculo.y, OBSTACULO_ANCHO, OBSTACULO_ALTO);
+  });
+
+  // 4) Recortar el frame actual del sprite sheet y dibujarlo
   const recorteX = columna * TAMANO_FRAME;
   const recorteY = FILAS[direccion] * TAMANO_FRAME;
 
@@ -138,7 +197,7 @@ function dibujar() {
 }
 
 // =============================================
-// 9. ACTUALIZACIÓN PERIÓDICA
+// 10. ACTUALIZACIÓN PERIÓDICA
 // =============================================
 function actualizar() {
   moverPersonaje();
@@ -146,15 +205,16 @@ function actualizar() {
   dibujar();
 }
 
-// Esperamos a que carguen las dos imágenes antes de empezar
+// Esperamos a que carguen las tres imágenes antes de empezar
 let imagenesCargadas = 0;
 
 function imagenLista() {
   imagenesCargadas++;
-  if (imagenesCargadas === 2) {
+  if (imagenesCargadas === 3) {
     setInterval(actualizar, INTERVALO);
   }
 }
 
 fondo.onload = imagenLista;
 sprite.onload = imagenLista;
+imagenObstaculo.onload = imagenLista;
